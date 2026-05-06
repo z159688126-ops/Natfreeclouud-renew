@@ -17,8 +17,10 @@ CONFIG = {
     "captcha_input_selector": "#captcha_allow_login_email_captcha", 
     "login_btn_selector": 'button[type="submit"]',
     
+    "user_center_selector": 'a[href="clientarea"]',
+    
     # 签到页面的元素定位器
-    "sign_in_url": 'https://nat.freecloud.ltd/addons?_plugin=19&_controller=index&_action=index', # 🌟 新增：签到页面的直接网址
+    "sign_in_url": 'https://nat.freecloud.ltd/addons?_plugin=19&_controller=index&_action=index',
     "sign_in_btn_selector": 'button[onclick="showMathVerification()"]', 
     "math_question_selector": '#mathQuestion',                       
     "math_input_selector": '#userAnswer',                            
@@ -170,7 +172,7 @@ def process_single_account(username, password):
         sb.uc_open_with_reconnect(CONFIG['target_url'], reconnect_time=8)
         time.sleep(4)
         
-        take_screenshot(sb, "1_初始访问页面", username)
+        take_screenshot(sb, "01_初始访问页面", username)
 
         page_source = sb.get_page_source()
         if "Error 1005" in page_source or "Access denied" in page_source:
@@ -189,30 +191,74 @@ def process_single_account(username, password):
 
         try:
             # --- 登录模块 ---
-            sb.wait_for_element(CONFIG['captcha_img_selector'], timeout=10)
-            img_src = sb.get_attribute(CONFIG['captcha_img_selector'], "src")
+            login_success = False 
             
-            if "base64," in img_src:
-                base64_data = img_src.split(',')[1]
-                img_bytes = base64.b64decode(base64_data)
-                ocr = ddddocr.DdddOcr(show_ad=False)
-                captcha_text = ocr.classification(img_bytes)
-            else:
-                return
+            for login_attempt in range(2):
+                print(f"    ▶ 开始第 {login_attempt + 1} 次尝试登录...")
+                
+                # ==================================================
+                # 🌟 优化：验证码最多尝试 10 次，失败则退出程序
+                # ==================================================
+                captcha_success = False # 设定一个标记，记录验证码是否成功获取
+                
+                for captcha_attempt in range(10): # 循环 10 次
+                    sb.wait_for_element(CONFIG['captcha_img_selector'], timeout=10)
+                    img_src = sb.get_attribute(CONFIG['captcha_img_selector'], "src")
+                    
+                    if img_src and "base64," in img_src:
+                        base64_data = img_src.split(',')[1]
+                        img_bytes = base64.b64decode(base64_data)
+                        ocr = ddddocr.DdddOcr(show_ad=False)
+                        captcha_text = ocr.classification(img_bytes)
+                        
+                        # 判断是否全部为数字
+                        if captcha_text.isdigit():
+                            print(f"      ✅ 验证码识别成功 (纯数字): {captcha_text}")
+                            captcha_success = True # 将标记改为成功
+                            break # 是纯数字，跳出这 10 次的循环，继续往下执行
+                        else:
+                            print(f"      ⚠️ 第 {captcha_attempt + 1} 次识别结果含字母/乱码 ({captcha_text})，点击刷新...")
+                            sb.click(CONFIG['captcha_img_selector'])
+                            time.sleep(2) # 等待两秒让新图片加载出来
+                    else:
+                        print("      ⚠️ 无法获取验证码图片。")
+                        break
+                
+                # 检查标记：如果循环了 10 次还是没成功，执行退出操作
+                if not captcha_success:
+                    print("    🚨 致命错误：验证码连续 10 次识别失败！程序将直接退出。")
+                    sys.exit(1) # 调用 sys.exit(1) 强制终止整个 Python 脚本
+                # ==================================================
 
-            sb.type(CONFIG['username_selector'], username)
-            sb.type(CONFIG['password_selector'], password)
-            sb.type(CONFIG['captcha_input_selector'], captcha_text)
+                sb.clear(CONFIG['username_selector'])
+                sb.type(CONFIG['username_selector'], username)
+                
+                sb.clear(CONFIG['password_selector'])
+                sb.type(CONFIG['password_selector'], password)
+                
+                sb.clear(CONFIG['captcha_input_selector'])
+                sb.type(CONFIG['captcha_input_selector'], captcha_text)
+                
+                sb.click(CONFIG['login_btn_selector'])
+                time.sleep(5)
+                
+                if sb.is_element_present(CONFIG['user_center_selector']):
+                    login_success = True
+                    print(f"    📄 登录验证成功！当前页面: {sb.get_title()}")
+                    break 
+                else:
+                    print(f"    ⚠️ 第 {login_attempt + 1} 次登录似乎失败了（没找到用户中心），正在准备重试...")
+                    sb.refresh() 
+                    time.sleep(3)
             
-            sb.click(CONFIG['login_btn_selector'])
-            time.sleep(5)
-            print(f"📄 登录成功，当前页面: {sb.get_title()}")
+            if not login_success:
+                print("    ❌ 两次登录尝试均未成功，跳过当前账号的后续任务。")
+                return 
 
             # ==========================================
             # 🌟 每日签到与积分提取模块
             # ==========================================
             print("\n>>> 🎁 准备执行每日签到任务...")
-            # 🌟 修复：放弃点击菜单，改为直接强制跳转至签到网址
             sb.open(CONFIG['sign_in_url'])
             time.sleep(4) 
             
@@ -234,18 +280,22 @@ def process_single_account(username, password):
                 
                 final_answer = int(result) 
                 print(f"    ✅ 计算结果为整数: {final_answer}，正在提交...")
+                
+                sb.clear(CONFIG['math_input_selector']) 
                 sb.type(CONFIG['math_input_selector'], str(final_answer))
                 
                 sb.click(CONFIG['verify_btn_selector'])
                 
-                # 无论是"验证成功"还是"今天已经签到过了"，弹窗都是这个元素，一并抓取
                 sb.wait_for_element(CONFIG['popup_content_selector'], timeout=5)
                 popup_msg = sb.get_text(CONFIG['popup_content_selector'])
                 print(f"    🔔 签到系统提示: 【{popup_msg}】")
                 
-                # 点击关闭弹窗
                 sb.click(CONFIG['popup_confirm_btn_selector'])
                 time.sleep(2) 
+                
+                print("    🔄 正在强制刷新页面以同步最新的余额数据...")
+                sb.refresh()
+                time.sleep(4)
                 
                 try:
                     balance_text = sb.get_text(CONFIG['points_balance_selector'])
@@ -274,26 +324,21 @@ def process_single_account(username, password):
                 take_screenshot(sb, "8_云服务器列表页", username)
                 
                 if sb.is_element_present(CONFIG['server_checkbox_selector']):
-                    # 1. 勾选第一台服务器
                     sb.click(CONFIG['server_checkbox_selector'])
                     print("    ▶ 已勾选目标云服务器。")
                     
-                    # 2. 列表点击续费
                     sb.js_click(CONFIG['list_renew_btn_selector'])
                     time.sleep(4) 
                     
                     print("    ▶ 正在生成续费订单...")
-                    # 3. 立即续费
                     sb.wait_for_element(CONFIG['confirm_renew_btn_selector'], timeout=10)
                     sb.js_click(CONFIG['confirm_renew_btn_selector']) 
                     time.sleep(5) 
                     
                     print("    ▶ 已调起支付面板，等待确认...")
-                    # 4. 收银台确认支付 (延长等待时间防网络卡顿)
                     sb.wait_for_element(CONFIG['order_pay_btn_selector'], timeout=15)
                     sb.js_click(CONFIG['order_pay_btn_selector']) 
                     
-                    # 5. 弹窗确认支付
                     sb.wait_for_element(CONFIG['modal_pay_btn_selector'], timeout=10)
                     sb.js_click(CONFIG['modal_pay_btn_selector']) 
                     print("    ▶ 💸 已在弹窗中确认支付，正在等待系统处理并跳转...")
@@ -310,9 +355,6 @@ def process_single_account(username, password):
                     except Exception as e:
                         pass
                     
-                    # ==========================================
-                    # 🌟 最终闭环：重返签到中心核对积分
-                    # ==========================================
                     print("\n>>> 🔄 续费完成，返回签到中心查看最新积分...")
                     sb.open(CONFIG['sign_in_url'])
                     time.sleep(4)
