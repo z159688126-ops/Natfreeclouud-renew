@@ -315,7 +315,7 @@ def process_single_account(username, password):
             # ==========================================
             # 🌟 积分判断与云服务器续费模块
             # ==========================================
-            if balance_value >= 0.01:
+            if balance_value >= 0.25:
                 print(f">>> 💻 积分达标 (当前 {balance_value})，开始执行云服务器续费任务...")
                 
                 print("    ▶ 正在强制跳转至云服务器列表网址...")
@@ -372,7 +372,7 @@ def process_single_account(username, password):
                 else:
                     print("    ⚠️ 当前账号下未检测到可续费的云服务器，已跳过。")
             else:
-                print(f">>> 🛑 积分不足 (当前 {balance_value} < 0.01)，安全退出当前账号的后续操作！")
+                print(f">>> 🛑 积分不足 (当前 {balance_value} < 0.25)，安全退出当前账号的后续操作！")
 
         except Exception as e:
             print(f"    ❌ 账号处理或执行过程中出现错误: {e}")
