@@ -52,8 +52,10 @@ def take_screenshot(sb, step_name, username="system"):
     try:
         sb.save_screenshot(filepath)
         print(f"    📸 已截图保存: {filepath}")
+        return filepath
     except Exception as e:
         print(f"    ⚠️ 截图失败 ({filepath}): {e}")
+        return None
 
 
 def click_first_available(sb, selectors, timeout=4, use_js=True):
@@ -105,7 +107,7 @@ def dump_clickable_texts(sb, limit=30):
         print(f"    ⚠️ 可点击文本提取失败: {e}")
 
 
-def latest_screenshots(username, limit=5):
+def latest_screenshots(username, limit=1):
     safe_name = username.replace("@", "_").replace(".", "_")
     files = glob.glob(f"screenshots/{safe_name}_*.png")
     files.sort(key=os.path.getmtime, reverse=True)
@@ -132,7 +134,8 @@ def send_tg_notify(username, status, message="", images=None):
         )
         resp.raise_for_status()
         print("    ✅ TG 文字通知发送成功")
-        for img in (images or [])[:5]:
+        # TG 只发送 1 张关键截图，避免连续刷屏。
+        for img in (images or [])[:1]:
             if os.path.exists(img):
                 with open(img, "rb") as f:
                     r = requests.post(
@@ -479,16 +482,18 @@ def process_single_account(username, password):
                     print("    ▶ 💸 已确认支付，正在等待系统处理并跳转...")
                     
                     time.sleep(8) 
-                    take_screenshot(sb, "12_支付完成跳转详情页", username)
+                    renew_result_screenshot = take_screenshot(sb, "12_支付完成跳转详情页", username)
+                    expire_text = "未提取到到期时间，请查看截图确认"
                     
                     try:
                         p_elements = sb.find_elements('section.text-gray p')
                         for p in p_elements:
                             if "到期时间" in p.text:
-                                print(f"    📅 续费成功！最新 {p.text}")
+                                expire_text = p.text
+                                print(f"    📅 续费成功！最新 {expire_text}")
                                 break
                     except Exception as e:
-                        pass
+                        print(f"    ⚠️ 到期时间提取失败: {e}")
                     
                     print("\n>>> 🔄 续费完成，返回签到中心查看最新积分...")
                     sb.open(CONFIG['sign_in_url'])
@@ -504,7 +509,13 @@ def process_single_account(username, password):
                     except Exception:
                         final_balance_text = "无法获取最终积分余额"
                         print("    ⚠️ 无法获取最终积分余额。")
-                    send_tg_notify(username, "✅ 续约流程已完成", f"续约后账户信息：{final_balance_text}", latest_screenshots(username))
+                    success_image = [renew_result_screenshot] if renew_result_screenshot else latest_screenshots(username)
+                    send_tg_notify(
+                        username,
+                        "✅ 续约流程已完成",
+                        f"{expire_text}\n续约后账户信息：{final_balance_text}",
+                        success_image,
+                    )
                         
                 else:
                     msg = "当前账号下未检测到可续费的云服务器，已跳过。"
