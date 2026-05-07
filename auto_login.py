@@ -2,9 +2,15 @@ import time
 import os
 import base64
 import sys
-import re  
+import re
+import glob
+from html import escape
 from seleniumbase import SB
 import ddddocr
+try:
+    import requests
+except Exception:
+    requests = None
 
 # ==========================================
 # 1. 网站配置区域
@@ -66,6 +72,79 @@ def click_first_available(sb, selectors, timeout=4, use_js=True):
             last_error = e
             print(f"    ⚠️ 未找到/无法点击: {selector}")
     raise Exception(f"所有备用按钮选择器均失败: {selectors}; last_error={last_error}")
+
+
+def click_by_text(sb, texts):
+    """通过按钮/链接文本点击，避免 class 变化导致续约流程中断。"""
+    script = """
+    const texts = arguments[0];
+    const nodes = Array.from(document.querySelectorAll('button,a,.layui-layer-btn0,.layui-layer-btn a,input[type=button],input[type=submit]'));
+    for (const t of texts) {
+      const hit = nodes.find(el => ((el.innerText || el.value || '').trim()).includes(t));
+      if (hit) { hit.scrollIntoView({block:'center'}); hit.click(); return t; }
+    }
+    return null;
+    """
+    clicked = sb.execute_script(script, texts)
+    if clicked:
+        print(f"    ✅ 已按文本点击按钮: {clicked}")
+        return clicked
+    raise Exception(f"未找到包含这些文本的按钮: {texts}")
+
+
+def dump_clickable_texts(sb, limit=30):
+    """打印当前页面可点击按钮文本，便于定位网站改版后的按钮。"""
+    try:
+        items = sb.execute_script("""
+        return Array.from(document.querySelectorAll('button,a,input[type=button],input[type=submit],.layui-layer-btn0,.layui-layer-btn a'))
+          .map(el => (el.innerText || el.value || el.getAttribute('title') || '').trim())
+          .filter(Boolean).slice(0, arguments[0]);
+        """, limit)
+        print(f"    🧭 当前可点击按钮/链接文本: {items}")
+    except Exception as e:
+        print(f"    ⚠️ 可点击文本提取失败: {e}")
+
+
+def latest_screenshots(username, limit=5):
+    safe_name = username.replace("@", "_").replace(".", "_")
+    files = glob.glob(f"screenshots/{safe_name}_*.png")
+    files.sort(key=os.path.getmtime, reverse=True)
+    return files[:limit]
+
+
+def send_tg_notify(username, status, message="", images=None):
+    bot_token = os.environ.get("BOT_TOKEN", "")
+    chat_id = os.environ.get("CHAT_ID", "")
+    if not bot_token or not chat_id:
+        print("    ⚠️ 未配置 BOT_TOKEN/CHAT_ID，跳过 TG 通知。")
+        return
+    if requests is None:
+        print("    ⚠️ requests 未安装，跳过 TG 通知。")
+        return
+    text = f"📡 <b>NatFreeCloud 自动续约通知</b>\n👤 账号: <code>{escape(username)}</code>\n📌 状态: <b>{escape(status)}</b>"
+    if message:
+        text += f"\n📝 详情: {escape(message[:800])}"
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            data={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        print("    ✅ TG 文字通知发送成功")
+        for img in (images or [])[:5]:
+            if os.path.exists(img):
+                with open(img, "rb") as f:
+                    r = requests.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+                        data={"chat_id": chat_id, "caption": os.path.basename(img)},
+                        files={"photo": f},
+                        timeout=30,
+                    )
+                    r.raise_for_status()
+                    print(f"    ✅ TG 截图发送成功: {img}")
+    except Exception as e:
+        print(f"    ❌ TG 通知发送失败: {e}")
 
 # ==========================================
 # 2. Cloudflare 绕过辅助函数 
@@ -350,29 +429,54 @@ def process_single_account(username, password):
                     
                     print("    ▶ 正在生成续费订单...")
                     take_screenshot(sb, "9_点击续费后等待确认按钮", username)
-                    click_first_available(sb, [
-                        CONFIG['confirm_renew_btn_selector'],
-                        '.layui-layer-btn0',
-                        '.layui-layer-btn a',
-                        'button[type="submit"]',
-                        'button:contains("确认")',
-                        'button:contains("提交")',
-                        'a:contains("确认")',
-                        'a:contains("提交")',
-                        '//*[contains(text(), "确认续费")]',
-                        '//*[contains(text(), "确认")]',
-                        '//*[contains(text(), "提交")]',
-                    ], timeout=5)
-                    time.sleep(5) 
+                    dump_clickable_texts(sb)
+                    try:
+                        click_first_available(sb, [
+                            CONFIG['confirm_renew_btn_selector'],
+                            '.layui-layer-btn0',
+                            '.layui-layer-btn a',
+                            'button[type="submit"]',
+                            '//*[contains(normalize-space(.), "确认续费")]',
+                            '//*[contains(normalize-space(.), "生成订单")]',
+                            '//*[contains(normalize-space(.), "确认")]',
+                            '//*[contains(normalize-space(.), "提交")]',
+                        ], timeout=5)
+                    except Exception:
+                        click_by_text(sb, ["确认续费", "生成订单", "确认", "提交", "立即续费"])
+                    time.sleep(5)
                     take_screenshot(sb, "10_确认续费后支付页面", username)
+                    dump_clickable_texts(sb)
                     
                     print("    ▶ 已调起支付面板，等待确认...")
-                    sb.wait_for_element(CONFIG['order_pay_btn_selector'], timeout=15)
-                    sb.js_click(CONFIG['order_pay_btn_selector']) 
+                    try:
+                        click_first_available(sb, [
+                            CONFIG['order_pay_btn_selector'],
+                            '#payamount',
+                            '.payamount',
+                            'button[type="submit"]',
+                            '//*[contains(normalize-space(.), "余额支付")]',
+                            '//*[contains(normalize-space(.), "立即支付")]',
+                            '//*[contains(normalize-space(.), "支付")]',
+                        ], timeout=8)
+                    except Exception:
+                        click_by_text(sb, ["余额支付", "立即支付", "支付", "确认支付"])
+                    time.sleep(2)
+                    take_screenshot(sb, "11_支付确认弹窗", username)
+                    dump_clickable_texts(sb)
                     
-                    sb.wait_for_element(CONFIG['modal_pay_btn_selector'], timeout=10)
-                    sb.js_click(CONFIG['modal_pay_btn_selector']) 
-                    print("    ▶ 💸 已在弹窗中确认支付，正在等待系统处理并跳转...")
+                    try:
+                        click_first_available(sb, [
+                            CONFIG['modal_pay_btn_selector'],
+                            '.layui-layer-btn0',
+                            '.layui-layer-btn a',
+                            'button.pay-now',
+                            '//*[contains(normalize-space(.), "确认支付")]',
+                            '//*[contains(normalize-space(.), "确认")]',
+                            '//*[contains(normalize-space(.), "支付")]',
+                        ], timeout=8)
+                    except Exception:
+                        click_by_text(sb, ["确认支付", "确认", "支付"])
+                    print("    ▶ 💸 已确认支付，正在等待系统处理并跳转...")
                     
                     time.sleep(8) 
                     take_screenshot(sb, "12_支付完成跳转详情页", username)
@@ -398,16 +502,23 @@ def process_single_account(username, password):
                         if match:
                             print(f"    ✨ 最终剩余可用积分: {float(match.group(1))}")
                     except Exception:
+                        final_balance_text = "无法获取最终积分余额"
                         print("    ⚠️ 无法获取最终积分余额。")
+                    send_tg_notify(username, "✅ 续约流程已完成", f"续约后账户信息：{final_balance_text}", latest_screenshots(username))
                         
                 else:
-                    print("    ⚠️ 当前账号下未检测到可续费的云服务器，已跳过。")
+                    msg = "当前账号下未检测到可续费的云服务器，已跳过。"
+                    print(f"    ⚠️ {msg}")
+                    send_tg_notify(username, "⚠️ 未检测到可续费服务器", msg, latest_screenshots(username))
             else:
-                print(f">>> 🛑 积分不足 (当前 {balance_value} < 0.01)，安全退出当前账号的后续操作！")
+                msg = f"积分不足 (当前 {balance_value} < 0.01)，安全退出当前账号的后续操作！"
+                print(f">>> 🛑 {msg}")
+                send_tg_notify(username, "🛑 积分不足未续约", msg, latest_screenshots(username))
 
         except Exception as e:
             print(f"    ❌ 账号处理或执行过程中出现错误: {e}")
             take_screenshot(sb, "Error_程序崩溃截图", username)
+            send_tg_notify(username, "❌ 续约流程异常", str(e), latest_screenshots(username))
 
 # ==========================================
 # 4. 主程序入口

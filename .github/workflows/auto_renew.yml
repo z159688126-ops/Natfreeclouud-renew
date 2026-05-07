@@ -23,7 +23,7 @@ jobs:
       - name: 安装 Python 依赖包
         # 把 pip 安装日志也藏起来放到 init_env.log 里
         run: |
-          pip install seleniumbase ddddocr PyAutoGUI > init_env.log 2>&1
+          pip install seleniumbase ddddocr PyAutoGUI requests > init_env.log 2>&1
 
       - name: 🚀 智能解析节点并启动 Hysteria2
         env:
@@ -53,6 +53,8 @@ jobs:
       - name: 运行自动化脚本 (全局接管网络 + 虚拟屏幕)
         env:
           acount: ${{ secrets.ACOUNT }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
           HTTP_PROXY: socks5://127.0.0.1:10808
           HTTPS_PROXY: socks5://127.0.0.1:10808
           NO_PROXY: localhost,127.0.0.1,::1,github.com,github.io,googlechromelabs.github.io,googleapis.com
