@@ -49,6 +49,24 @@ def take_screenshot(sb, step_name, username="system"):
     except Exception as e:
         print(f"    ⚠️ 截图失败 ({filepath}): {e}")
 
+
+def click_first_available(sb, selectors, timeout=4, use_js=True):
+    """依次尝试多个 CSS/XPath 选择器，适配网站按钮 class 变化。"""
+    last_error = None
+    for selector in selectors:
+        try:
+            sb.wait_for_element_visible(selector, timeout=timeout)
+            if use_js:
+                sb.js_click(selector)
+            else:
+                sb.click(selector)
+            print(f"    ✅ 已点击按钮: {selector}")
+            return selector
+        except Exception as e:
+            last_error = e
+            print(f"    ⚠️ 未找到/无法点击: {selector}")
+    raise Exception(f"所有备用按钮选择器均失败: {selectors}; last_error={last_error}")
+
 # ==========================================
 # 2. Cloudflare 绕过辅助函数 
 # ==========================================
@@ -331,9 +349,22 @@ def process_single_account(username, password):
                     time.sleep(4) 
                     
                     print("    ▶ 正在生成续费订单...")
-                    sb.wait_for_element(CONFIG['confirm_renew_btn_selector'], timeout=10)
-                    sb.js_click(CONFIG['confirm_renew_btn_selector']) 
+                    take_screenshot(sb, "9_点击续费后等待确认按钮", username)
+                    click_first_available(sb, [
+                        CONFIG['confirm_renew_btn_selector'],
+                        '.layui-layer-btn0',
+                        '.layui-layer-btn a',
+                        'button[type="submit"]',
+                        'button:contains("确认")',
+                        'button:contains("提交")',
+                        'a:contains("确认")',
+                        'a:contains("提交")',
+                        '//*[contains(text(), "确认续费")]',
+                        '//*[contains(text(), "确认")]',
+                        '//*[contains(text(), "提交")]',
+                    ], timeout=5)
                     time.sleep(5) 
+                    take_screenshot(sb, "10_确认续费后支付页面", username)
                     
                     print("    ▶ 已调起支付面板，等待确认...")
                     sb.wait_for_element(CONFIG['order_pay_btn_selector'], timeout=15)
