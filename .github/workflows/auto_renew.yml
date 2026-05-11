@@ -52,7 +52,9 @@ jobs:
 
       - name: 运行自动化脚本 (全局接管网络 + 虚拟屏幕)
         env:
-          acount: ${{ secrets.ACOUNT }}
+          ACOUNT: ${{ secrets.ACOUNT }}
+          ACOUNT_2: ${{ secrets.ACOUNT_2 }}
+          ACCOUNTS: ${{ secrets.ACCOUNTS }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           HTTP_PROXY: socks5://127.0.0.1:10808

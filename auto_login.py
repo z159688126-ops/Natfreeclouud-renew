@@ -584,27 +584,55 @@ def process_single_account(username, password):
 # ==========================================
 # 4. 主程序入口
 # ==========================================
+def collect_accounts():
+    """Collect accounts from env vars.
+
+    Supported formats:
+    - acount / ACOUNT: email:password[,email2:password2]
+    - ACOUNT_2, ACOUNT_3...: email:password
+    - ACCOUNTS: newline or comma separated email:password entries
+    """
+    raw_items = []
+
+    for key in ("acount", "ACOUNT", "ACCOUNTS"):
+        value = os.environ.get(key, "").strip()
+        if value:
+            raw_items.extend(re.split(r"[\n,]+", value))
+
+    for i in range(2, 21):
+        value = os.environ.get(f"ACOUNT_{i}", "").strip()
+        if value:
+            raw_items.append(value)
+
+    accounts = []
+    seen = set()
+    for item in raw_items:
+        item = item.strip()
+        if not item or ':' not in item:
+            continue
+        username, password = item.split(':', 1)
+        username = username.strip()
+        password = password.strip()
+        if not username or not password or username in seen:
+            continue
+        seen.add(username)
+        accounts.append((username, password))
+    return accounts
+
+
 def main():
     print("🚀 自动化任务启动...")
-    accounts_str = os.environ.get("acount")
-    
-    if not accounts_str:
-        print("⚠️ 未获取到名为 'acount' 环境变量！")
+    accounts = collect_accounts()
+
+    if not accounts:
+        print("⚠️ 未获取到账户环境变量！请配置 acount/ACOUNT、ACOUNT_2 或 ACCOUNTS。")
         return
 
-    account_list = accounts_str.split(',')
-    print(f"📋 共检测到 {len(account_list)} 个账号。")
-    
-    for item in account_list:
-        item = item.strip()
-        if ':' in item:
-            parts = item.split(':', 1) 
-            username = parts[0].strip()
-            password = parts[1].strip()
-            process_single_account(username, password)
-        else:
-            pass
-            
+    print(f"📋 共检测到 {len(accounts)} 个账号。")
+
+    for username, password in accounts:
+        process_single_account(username, password)
+
     print("\n🏁 所有队列任务已全部执行完成！")
 
 if __name__ == "__main__":

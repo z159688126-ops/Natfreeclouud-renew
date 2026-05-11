@@ -34,7 +34,10 @@
 
 **账户格式：**
 - 单个账户：`email@example.com:password`
-- 多个账户：`email1@example.com:password1,email2@example.com:password2`
+- 多个账户：
+  - 方式一：`ACOUNT=email1@example.com:password1`，`ACOUNT_2=email2@example.com:password2`
+  - 方式二：`ACCOUNTS=email1@example.com:password1,email2@example.com:password2`
+  - 兼容旧格式：`ACOUNT=email1@example.com:password1,email2@example.com:password2`
 
 ### 3. 启用 GitHub Actions
 
