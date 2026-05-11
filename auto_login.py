@@ -154,7 +154,7 @@ def latest_screenshots(username, limit=1):
     return files[:limit]
 
 
-def send_tg_notify(username, status, message="", images=None):
+def send_tg_notify(username, status, message="", images=None, expire_text="", balance_text=""):
     bot_token = os.environ.get("BOT_TOKEN", "")
     chat_id = os.environ.get("CHAT_ID", "")
     if not bot_token or not chat_id:
@@ -163,7 +163,12 @@ def send_tg_notify(username, status, message="", images=None):
     if requests is None:
         print("    ⚠️ requests 未安装，跳过 TG 通知。")
         return
+
     text = f"📡 <b>NatFreeCloud 自动续约通知</b>\n👤 账号: <code>{escape(username)}</code>\n📌 状态: <b>{escape(status)}</b>"
+    if expire_text:
+        text += f"\n📅 续约后到期: <b>{escape(expire_text)}</b>"
+    if balance_text:
+        text += f"\n💰 续约后账户信息: {escape(balance_text)}"
     if message:
         text += f"\n📝 详情: {escape(message[:800])}"
     try:
@@ -534,12 +539,15 @@ def process_single_account(username, password):
                     time.sleep(8) 
                     renew_result_screenshot = take_screenshot(sb, "12_支付完成跳转详情页", username)
                     expire_text = "未提取到到期时间，请查看截图确认"
+                    expire_date = ""
                     
                     try:
                         p_elements = sb.find_elements('section.text-gray p')
                         for p in p_elements:
                             if "到期时间" in p.text:
-                                expire_text = p.text
+                                expire_text = p.text.strip()
+                                match = re.search(r"\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2}(?::\d{2})?)?", expire_text)
+                                expire_date = match.group(0) if match else expire_text.replace("到期时间", "").replace("：", "").replace(":", "").strip()
                                 print(f"    📅 续费成功！最新 {expire_text}")
                                 break
                     except Exception as e:
@@ -563,8 +571,10 @@ def process_single_account(username, password):
                     send_tg_notify(
                         username,
                         "✅ 续约流程已完成",
-                        f"{expire_text}\n续约后账户信息：{final_balance_text}",
+                        "",
                         success_image,
+                        expire_date or expire_text,
+                        final_balance_text,
                     )
                         
                 else:
