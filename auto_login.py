@@ -567,7 +567,22 @@ def process_single_account(username, password):
                     except Exception:
                         final_balance_text = "无法获取最终积分余额"
                         print("    ⚠️ 无法获取最终积分余额。")
-                    success_image = [renew_result_screenshot] if renew_result_screenshot else latest_screenshots(username)
+
+                    product_list_screenshot = None
+                    try:
+                        print("\n>>> 📋 正在打开云服务器列表，截取产品与到期时间区域...")
+                        sb.open(CONFIG['server_list_url'])
+                        time.sleep(4)
+                        sb.execute_script("""
+                            const table = document.querySelector('table') || document.querySelector('.table') || document.querySelector('.layui-table');
+                            if (table) table.scrollIntoView({block: 'center'});
+                        """)
+                        time.sleep(1)
+                        product_list_screenshot = take_screenshot(sb, "14_续费后云服务器产品列表", username)
+                    except Exception as e:
+                        print(f"    ⚠️ 产品列表截图失败: {e}")
+
+                    success_image = [product_list_screenshot or renew_result_screenshot] if (product_list_screenshot or renew_result_screenshot) else latest_screenshots(username)
                     send_tg_notify(
                         username,
                         "✅ 续约流程已完成",
