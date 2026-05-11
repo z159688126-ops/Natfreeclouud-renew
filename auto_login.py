@@ -79,22 +79,20 @@ def click_first_available(sb, selectors, timeout=4, use_js=True):
 def click_by_text(sb, texts):
     """通过按钮/链接文本点击，避免 class 变化导致续约流程中断。"""
     script = """
-    return (() => {
-      const texts = arguments[0];
-      const selectors = [
-        '.layui-layer-btn0', '.layui-layer-btn a', '.layui-layer-btn1',
-        'button.pay-now', '#payamount', '.payamount', '.xfSubmit',
-        'button', 'a', 'input[type=button]', 'input[type=submit]'
-      ];
-      const nodes = Array.from(document.querySelectorAll(selectors.join(',')))
-        .filter(el => el && el.offsetParent !== null)
-        .reverse();
-      for (const t of texts) {
-        const hit = nodes.find(el => ((el.innerText || el.value || el.getAttribute('title') || '').trim()).includes(t));
-        if (hit) { hit.scrollIntoView({block:'center'}); hit.click(); return t; }
-      }
-      return null;
-    })();
+    const texts = arguments[0];
+    const selectors = [
+      '.layui-layer-btn0', '.layui-layer-btn a', '.layui-layer-btn1',
+      'button.pay-now', '#payamount', '.payamount', '.xfSubmit',
+      'button', 'a', 'input[type=button]', 'input[type=submit]'
+    ];
+    const nodes = Array.from(document.querySelectorAll(selectors.join(',')))
+      .filter(el => el && el.offsetParent !== null)
+      .reverse();
+    for (const t of texts) {
+      const hit = nodes.find(el => ((el.innerText || el.value || el.getAttribute('title') || '').trim()).includes(t));
+      if (hit) { hit.scrollIntoView({block:'center'}); hit.click(); return t; }
+    }
+    return null;
     """
     clicked = sb.execute_script(script, texts)
     if clicked:
@@ -106,24 +104,22 @@ def click_by_text(sb, texts):
 def click_last_submit_or_confirm(sb):
     """最后兜底：优先点击页面/弹窗中靠后的确认、支付、提交按钮。"""
     script = """
-    return (() => {
-      const keywords = ['确认支付', '确认付款', '余额支付', '立即支付', '支付', '确认', '确定', '提交'];
-      const selectors = [
-        '.layui-layer-btn0', '.layui-layer-btn a', '.layui-layer-btn1',
-        'button.pay-now', '#payamount', '.payamount', '.xfSubmit',
-        'button', 'a', 'input[type=button]', 'input[type=submit]'
-      ];
-      const nodes = Array.from(document.querySelectorAll(selectors.join(',')))
-        .filter(el => el && el.offsetParent !== null)
-        .reverse();
-      for (const kw of keywords) {
-        const hit = nodes.find(el => ((el.innerText || el.value || el.getAttribute('title') || '').trim()).includes(kw));
-        if (hit) { hit.scrollIntoView({block:'center'}); hit.click(); return kw; }
-      }
-      const submit = nodes.find(el => (el.tagName || '').toLowerCase() === 'button' || (el.type || '').toLowerCase() === 'submit');
-      if (submit) { submit.scrollIntoView({block:'center'}); submit.click(); return '最后一个可见提交按钮'; }
-      return null;
-    })();
+    const keywords = ['确认支付', '确认付款', '余额支付', '立即支付', '支付', '确认', '确定', '提交'];
+    const selectors = [
+      '.layui-layer-btn0', '.layui-layer-btn a', '.layui-layer-btn1',
+      'button.pay-now', '#payamount', '.payamount', '.xfSubmit',
+      'button', 'a', 'input[type=button]', 'input[type=submit]'
+    ];
+    const nodes = Array.from(document.querySelectorAll(selectors.join(',')))
+      .filter(el => el && el.offsetParent !== null)
+      .reverse();
+    for (const kw of keywords) {
+      const hit = nodes.find(el => ((el.innerText || el.value || el.getAttribute('title') || '').trim()).includes(kw));
+      if (hit) { hit.scrollIntoView({block:'center'}); hit.click(); return kw; }
+    }
+    const submit = nodes.find(el => (el.tagName || '').toLowerCase() === 'button' || (el.type || '').toLowerCase() === 'submit');
+    if (submit) { submit.scrollIntoView({block:'center'}); submit.click(); return '最后一个可见提交按钮'; }
+    return null;
     """
     clicked = sb.execute_script(script)
     if clicked:
@@ -136,11 +132,9 @@ def dump_clickable_texts(sb, limit=30):
     """打印当前页面可点击按钮文本，便于定位网站改版后的按钮。"""
     try:
         items = sb.execute_script("""
-        return (() => {
-          return Array.from(document.querySelectorAll('button,a,input[type=button],input[type=submit],.layui-layer-btn0,.layui-layer-btn a,.layui-layer-btn1,#payamount,.payamount,button.pay-now,.xfSubmit'))
-            .map(el => (el.innerText || el.value || el.getAttribute('title') || el.id || el.className || '').trim())
-            .filter(Boolean).slice(0, arguments[0]);
-        })();
+        return Array.from(document.querySelectorAll('button,a,input[type=button],input[type=submit],.layui-layer-btn0,.layui-layer-btn a,.layui-layer-btn1,#payamount,.payamount,button.pay-now,.xfSubmit'))
+          .map(el => (el.innerText || el.value || el.getAttribute('title') || el.id || el.className || '').trim())
+          .filter(Boolean).slice(0, arguments[0]);
         """, limit)
         print(f"    🧭 当前可点击按钮/链接文本: {items}")
     except Exception as e:
@@ -299,6 +293,15 @@ def handle_turnstile_verification(sb) -> bool:
 # 3. 单个账号的处理流程
 # ==========================================
 def process_single_account(username, password):
+    result = {
+        "username": username,
+        "login": "未开始",
+        "sign_in": "未开始",
+        "renew": "未执行",
+        "expire": "",
+        "balance": "",
+        "reason": "",
+    }
     print(f"\n==========================================")
     print(f"➡️ 开始处理账号: {username}")
     print(f"==========================================")
@@ -398,7 +401,10 @@ def process_single_account(username, password):
             
             if not login_success:
                 print("    ❌ 两次登录尝试均未成功，跳过当前账号的后续任务。")
-                return 
+                result["login"] = "失败"
+                result["reason"] = "两次登录尝试均未成功"
+                return result
+            result["login"] = "成功"
 
             # ==========================================
             # 🌟 每日签到与积分提取模块
@@ -452,10 +458,14 @@ def process_single_account(username, password):
                 except Exception:
                     print("    ⚠️ 无法获取积分余额。")
 
+                result["sign_in"] = "成功"
+                result["balance"] = balance_text if 'balance_text' in locals() else str(balance_value)
                 print("    🎉 签到流程结束。\n")
                 break 
             else:
                 print("    ❌ 签到失败：连续 5 次刷新都没有遇到可以整除的算术题。")
+                result["sign_in"] = "失败"
+                result["reason"] = "连续 5 次没有遇到可整除算术题"
 
             # ==========================================
             # 🌟 积分判断与云服务器续费模块
@@ -583,6 +593,9 @@ def process_single_account(username, password):
                         print(f"    ⚠️ 产品列表截图失败: {e}")
 
                     success_image = [product_list_screenshot or renew_result_screenshot] if (product_list_screenshot or renew_result_screenshot) else latest_screenshots(username)
+                    result["renew"] = "成功"
+                    result["expire"] = expire_date or expire_text
+                    result["balance"] = final_balance_text
                     send_tg_notify(
                         username,
                         "✅ 续约流程已完成",
@@ -595,16 +608,25 @@ def process_single_account(username, password):
                 else:
                     msg = "当前账号下未检测到可续费的云服务器，已跳过。"
                     print(f"    ⚠️ {msg}")
+                    result["renew"] = "跳过"
+                    result["reason"] = msg
                     send_tg_notify(username, "⚠️ 未检测到可续费服务器", msg, latest_screenshots(username))
             else:
                 msg = f"积分不足 (当前 {balance_value} < 0.01)，安全退出当前账号的后续操作！"
                 print(f">>> 🛑 {msg}")
+                result["renew"] = "跳过"
+                result["reason"] = msg
                 send_tg_notify(username, "🛑 积分不足未续约", msg, latest_screenshots(username))
 
         except Exception as e:
             print(f"    ❌ 账号处理或执行过程中出现错误: {e}")
+            result["reason"] = str(e)
+            if result["renew"] == "未执行":
+                result["renew"] = "异常"
             take_screenshot(sb, "Error_程序崩溃截图", username)
             send_tg_notify(username, "❌ 续约流程异常", str(e), latest_screenshots(username))
+
+    return result
 
 # ==========================================
 # 4. 主程序入口
@@ -645,6 +667,25 @@ def collect_accounts():
     return accounts
 
 
+def send_summary_notify(results):
+    if not results:
+        return
+    lines = ["📊 <b>NatFreeCloud 多账号执行汇总</b>"]
+    for item in results:
+        lines.append(
+            "\n".join([
+                f"👤 <code>{escape(item.get('username', ''))}</code>",
+                f"🔐 登录: {escape(item.get('login', ''))}",
+                f"🎁 签到: {escape(item.get('sign_in', ''))}",
+                f"🔄 续约: {escape(item.get('renew', ''))}",
+                f"📅 到期: {escape(item.get('expire') or '-')}",
+                f"💰 余额: {escape(item.get('balance') or '-')}",
+                f"📝 原因: {escape(item.get('reason') or '-')}",
+            ])
+        )
+    send_tg_notify("SYSTEM", "📊 多账号执行汇总", "\n\n".join(lines))
+
+
 def main():
     print("🚀 自动化任务启动...")
     accounts = collect_accounts()
@@ -655,9 +696,11 @@ def main():
 
     print(f"📋 共检测到 {len(accounts)} 个账号。")
 
+    results = []
     for username, password in accounts:
-        process_single_account(username, password)
+        results.append(process_single_account(username, password))
 
+    send_summary_notify(results)
     print("\n🏁 所有队列任务已全部执行完成！")
 
 if __name__ == "__main__":
