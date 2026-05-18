@@ -458,148 +458,19 @@ def process_single_account(username, password):
                 print("    ❌ 签到失败：连续 5 次刷新都没有遇到可以整除的算术题。")
 
             # ==========================================
-            # 🌟 积分判断与云服务器续费模块
+            # 🌟 只签到，不再自动续费
             # ==========================================
-            if balance_value >= 0.01:
-                print(f">>> 💻 积分达标 (当前 {balance_value})，开始执行云服务器续费任务...")
-                
-                print("    ▶ 正在强制跳转至云服务器列表网址...")
-                sb.open(CONFIG['server_list_url'])
-                time.sleep(4) 
-                take_screenshot(sb, "8_云服务器列表页", username)
-                
-                if sb.is_element_present(CONFIG['server_checkbox_selector']):
-                    sb.click(CONFIG['server_checkbox_selector'])
-                    print("    ▶ 已勾选目标云服务器。")
-                    
-                    sb.js_click(CONFIG['list_renew_btn_selector'])
-                    time.sleep(4) 
-                    
-                    print("    ▶ 正在生成续费订单...")
-                    take_screenshot(sb, "9_点击续费后等待确认按钮", username)
-                    dump_clickable_texts(sb)
-                    try:
-                        click_first_available(sb, [
-                            CONFIG['confirm_renew_btn_selector'],
-                            '.layui-layer-btn0',
-                            '.layui-layer-btn a',
-                            'button[type="submit"]',
-                            '//*[contains(normalize-space(.), "确认续费")]',
-                            '//*[contains(normalize-space(.), "生成订单")]',
-                            '//*[contains(normalize-space(.), "确认")]',
-                            '//*[contains(normalize-space(.), "提交")]',
-                        ], timeout=5)
-                    except Exception:
-                        click_by_text(sb, ["确认续费", "生成订单", "确认", "提交", "立即续费"])
-                    time.sleep(5)
-                    take_screenshot(sb, "10_确认续费后支付页面", username)
-                    dump_clickable_texts(sb)
-                    
-                    print("    ▶ 已调起支付面板，等待确认...")
-                    try:
-                        click_first_available(sb, [
-                            CONFIG['order_pay_btn_selector'],
-                            '#payamount',
-                            '.payamount',
-                            'button[type="submit"]',
-                            '//*[contains(normalize-space(.), "余额支付")]',
-                            '//*[contains(normalize-space(.), "立即支付")]',
-                            '//*[contains(normalize-space(.), "支付")]',
-                        ], timeout=8)
-                    except Exception:
-                        click_by_text(sb, ["余额支付", "立即支付", "支付", "确认支付"])
-                    time.sleep(2)
-                    take_screenshot(sb, "11_支付确认弹窗", username)
-                    dump_clickable_texts(sb)
-                    
-                    try:
-                        click_first_available(sb, [
-                            CONFIG['modal_pay_btn_selector'],
-                            '.layui-layer-btn0',
-                            '.layui-layer-btn a',
-                            '.layui-layer-btn1',
-                            'button.pay-now',
-                            'button[type="submit"]',
-                            'input[type="submit"]',
-                            '//*[contains(normalize-space(.), "确认支付")]',
-                            '//*[contains(normalize-space(.), "确认付款")]',
-                            '//*[contains(normalize-space(.), "余额支付")]',
-                            '//*[contains(normalize-space(.), "立即支付")]',
-                            '//*[contains(normalize-space(.), "确定")]',
-                            '//*[contains(normalize-space(.), "确认")]',
-                            '//*[contains(normalize-space(.), "支付")]',
-                        ], timeout=8)
-                    except Exception:
-                        try:
-                            click_by_text(sb, ["确认支付", "确认付款", "余额支付", "立即支付", "支付", "确认", "确定", "提交"])
-                        except Exception:
-                            click_last_submit_or_confirm(sb)
-                    print("    ▶ 💸 已确认支付，正在等待系统处理并跳转...")
-                    
-                    time.sleep(8) 
-                    renew_result_screenshot = take_screenshot(sb, "12_支付完成跳转详情页", username)
-                    expire_text = "未提取到到期时间，请查看截图确认"
-                    expire_date = ""
-                    
-                    try:
-                        p_elements = sb.find_elements('section.text-gray p')
-                        for p in p_elements:
-                            if "到期时间" in p.text:
-                                expire_text = p.text.strip()
-                                match = re.search(r"\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2}(?::\d{2})?)?", expire_text)
-                                expire_date = match.group(0) if match else expire_text.replace("到期时间", "").replace("：", "").replace(":", "").strip()
-                                print(f"    📅 续费成功！最新 {expire_text}")
-                                break
-                    except Exception as e:
-                        print(f"    ⚠️ 到期时间提取失败: {e}")
-                    
-                    print("\n>>> 🔄 续费完成，返回签到中心查看最新积分...")
-                    sb.open(CONFIG['sign_in_url'])
-                    time.sleep(4)
-                    take_screenshot(sb, "13_续费后返回签到中心", username)
-                    
-                    try:
-                        final_balance_text = sb.get_text(CONFIG['points_balance_selector'])
-                        print(f"    💰 续费后账户最新信息: {final_balance_text}")
-                        match = re.search(r"(\d+(?:\.\d+)?)", final_balance_text)
-                        if match:
-                            print(f"    ✨ 最终剩余可用积分: {float(match.group(1))}")
-                    except Exception:
-                        final_balance_text = "无法获取最终积分余额"
-                        print("    ⚠️ 无法获取最终积分余额。")
-
-                    product_list_screenshot = None
-                    try:
-                        print("\n>>> 📋 正在打开云服务器列表，截取产品与到期时间区域...")
-                        sb.open(CONFIG['server_list_url'])
-                        time.sleep(4)
-                        sb.execute_script("""
-                            const table = document.querySelector('table') || document.querySelector('.table') || document.querySelector('.layui-table');
-                            if (table) table.scrollIntoView({block: 'center'});
-                        """)
-                        time.sleep(1)
-                        product_list_screenshot = take_screenshot(sb, "14_续费后云服务器产品列表", username)
-                    except Exception as e:
-                        print(f"    ⚠️ 产品列表截图失败: {e}")
-
-                    success_image = [product_list_screenshot or renew_result_screenshot] if (product_list_screenshot or renew_result_screenshot) else latest_screenshots(username)
-                    send_tg_notify(
-                        username,
-                        "✅ 续约流程已完成",
-                        "",
-                        success_image,
-                        expire_date or expire_text,
-                        final_balance_text,
-                    )
-                        
-                else:
-                    msg = "当前账号下未检测到可续费的云服务器，已跳过。"
-                    print(f"    ⚠️ {msg}")
-                    send_tg_notify(username, "⚠️ 未检测到可续费服务器", msg, latest_screenshots(username))
-            else:
-                msg = f"积分不足 (当前 {balance_value} < 0.01)，安全退出当前账号的后续操作！"
-                print(f">>> 🛑 {msg}")
-                send_tg_notify(username, "🛑 积分不足未续约", msg, latest_screenshots(username))
+            print(f">>> ✅ 签到完成，当前积分 {balance_value}。已按要求跳过自动续费/支付流程。")
+            current_balance_text = balance_text if 'balance_text' in locals() else f"{balance_value} 积分"
+            msg = f"签到完成。当前账户信息：{current_balance_text}\n已按要求关闭自动续约，只保留每日签到。"
+            send_tg_notify(
+                username,
+                "✅ 签到完成，已跳过续约",
+                msg,
+                latest_screenshots(username),
+                "",
+                current_balance_text,
+            )
 
         except Exception as e:
             print(f"    ❌ 账号处理或执行过程中出现错误: {e}")
