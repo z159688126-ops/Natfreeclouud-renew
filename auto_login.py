@@ -166,9 +166,9 @@ def send_tg_notify(username, status, message="", images=None, expire_text="", ba
 
     text = f"📡 <b>NatFreeCloud 自动续约通知</b>\n👤 账号: <code>{escape(username)}</code>\n📌 状态: <b>{escape(status)}</b>"
     if expire_text:
-        text += f"\n📅 续约后到期: <b>{escape(expire_text)}</b>"
+        text += f"\n📅 到期时间: <b>{escape(expire_text)}</b>"
     if balance_text:
-        text += f"\n💰 续约后账户信息: {escape(balance_text)}"
+        text += f"\n💰 账户信息: {escape(balance_text)}"
     if message:
         text += f"\n📝 详情: {escape(message[:800])}"
     try:
@@ -538,22 +538,27 @@ def process_single_account(username, password):
                     
                     time.sleep(8) 
                     renew_result_screenshot = take_screenshot(sb, "12_支付完成跳转详情页", username)
-                    expire_text = "未提取到到期时间，请查看截图确认"
+                    expire_text = ""
                     expire_date = ""
+                    page_after_pay = ""
+                    renew_success_keywords = False
                     
                     try:
+                        page_after_pay = sb.execute_script("return document.body ? document.body.innerText : ''") or ""
+                        renew_success_keywords = bool(re.search(r"续费成功|支付成功|订单支付成功|已续费|成功", page_after_pay, re.I))
                         p_elements = sb.find_elements('section.text-gray p')
-                        for p in p_elements:
-                            if "到期时间" in p.text:
-                                expire_text = p.text.strip()
-                                match = re.search(r"\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2}(?::\d{2})?)?", expire_text)
-                                expire_date = match.group(0) if match else expire_text.replace("到期时间", "").replace("：", "").replace(":", "").strip()
-                                print(f"    📅 续费成功！最新 {expire_text}")
-                                break
+                        candidates = [p.text.strip() for p in p_elements if p.text and "到期时间" in p.text]
+                        if not candidates:
+                            candidates = re.findall(r"到期时间\s*[:：]?\s*\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2}(?::\d{2})?)?", page_after_pay)
+                        if candidates:
+                            expire_text = candidates[-1].strip()
+                            match = re.search(r"\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2}(?::\d{2})?)?", expire_text)
+                            expire_date = match.group(0) if match else expire_text.replace("到期时间", "").replace("：", "").replace(":", "").strip()
+                            print(f"    📅 续费后提取到 {expire_text}")
                     except Exception as e:
                         print(f"    ⚠️ 到期时间提取失败: {e}")
                     
-                    print("\n>>> 🔄 续费完成，返回签到中心查看最新积分...")
+                    print("\n>>> 🔄 续费流程已执行，返回签到中心查看最新积分...")
                     sb.open(CONFIG['sign_in_url'])
                     time.sleep(4)
                     take_screenshot(sb, "13_续费后返回签到中心", username)
@@ -583,14 +588,34 @@ def process_single_account(username, password):
                         print(f"    ⚠️ 产品列表截图失败: {e}")
 
                     success_image = [product_list_screenshot or renew_result_screenshot] if (product_list_screenshot or renew_result_screenshot) else latest_screenshots(username)
-                    send_tg_notify(
-                        username,
-                        "✅ 续约流程已完成",
-                        "",
-                        success_image,
-                        expire_date or expire_text,
-                        final_balance_text,
-                    )
+                    if expire_date and renew_success_keywords:
+                        send_tg_notify(
+                            username,
+                            "✅ 续约流程已完成",
+                            "已确认页面出现成功提示，并提取到续约后的到期时间。",
+                            success_image,
+                            expire_date or expire_text,
+                            final_balance_text,
+                        )
+                    elif expire_date:
+                        send_tg_notify(
+                            username,
+                            "⚠️ 续约结果待确认",
+                            "已执行续约/支付流程并提取到到期时间，但页面未明确出现成功提示，请看截图确认。",
+                            success_image,
+                            expire_date or expire_text,
+                            final_balance_text,
+                        )
+                    else:
+                        diag = re.sub(r"\s+", " ", page_after_pay or "")[:600]
+                        send_tg_notify(
+                            username,
+                            "❌ 续约未确认成功",
+                            f"已执行续约/支付流程，但没有提取到到期时间，所以不再误报成功。页面片段：{diag}",
+                            success_image,
+                            "",
+                            final_balance_text,
+                        )
                         
                 else:
                     msg = "当前账号下未检测到可续费的云服务器，已跳过。"
