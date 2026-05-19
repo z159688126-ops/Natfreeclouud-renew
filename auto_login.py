@@ -4,6 +4,7 @@ import base64
 import sys
 import re
 import glob
+import json
 from html import escape
 from seleniumbase import SB
 import ddddocr
@@ -76,72 +77,50 @@ def click_first_available(sb, selectors, timeout=4, use_js=True):
     raise Exception(f"所有备用按钮选择器均失败: {selectors}; last_error={last_error}")
 
 
-def click_by_text(sb, texts):
-    """通过按钮/链接文本点击，避免 class 变化导致续约流程中断。"""
-    script = """
-    return (() => {
-      const texts = arguments[0];
-      const selectors = [
+def click_by_text(sb, texts, selectors=None, timeout_after=2):
+    """通过明确按钮/链接文本点击，避免 class 变化导致续约流程中断。"""
+    selectors = selectors or [
         '.layui-layer-btn0', '.layui-layer-btn a', '.layui-layer-btn1',
-        'button.pay-now', '#payamount', '.payamount', '.xfSubmit',
+        'button.pay-now', '#payamount', '.payamount', '.xfSubmit', '#readBtn',
         'button', 'a', 'input[type=button]', 'input[type=submit]'
-      ];
+    ]
+    script = f"""
+    (function() {{
+      const texts = {json.dumps(texts, ensure_ascii=False)};
+      const selectors = {json.dumps(selectors, ensure_ascii=False)};
       const nodes = Array.from(document.querySelectorAll(selectors.join(',')))
         .filter(el => el && el.offsetParent !== null)
         .reverse();
-      for (const t of texts) {
+      for (const t of texts) {{
         const hit = nodes.find(el => ((el.innerText || el.value || el.getAttribute('title') || '').trim()).includes(t));
-        if (hit) { hit.scrollIntoView({block:'center'}); hit.click(); return t; }
-      }
+        if (hit) {{ hit.scrollIntoView({{block:'center'}}); hit.click(); return t; }}
+      }}
       return null;
-    })();
+    }})();
     """
-    clicked = sb.execute_script(script, texts)
+    clicked = sb.execute_script(script)
     if clicked:
         print(f"    ✅ 已按文本点击按钮: {clicked}")
+        time.sleep(timeout_after)
         return clicked
     raise Exception(f"未找到包含这些文本的按钮: {texts}")
 
 
 def click_last_submit_or_confirm(sb):
-    """最后兜底：优先点击页面/弹窗中靠后的确认、支付、提交按钮。"""
-    script = """
-    return (() => {
-      const keywords = ['确认支付', '确认付款', '余额支付', '立即支付', '支付', '确认', '确定', '提交'];
-      const selectors = [
-        '.layui-layer-btn0', '.layui-layer-btn a', '.layui-layer-btn1',
-        'button.pay-now', '#payamount', '.payamount', '.xfSubmit',
-        'button', 'a', 'input[type=button]', 'input[type=submit]'
-      ];
-      const nodes = Array.from(document.querySelectorAll(selectors.join(',')))
-        .filter(el => el && el.offsetParent !== null)
-        .reverse();
-      for (const kw of keywords) {
-        const hit = nodes.find(el => ((el.innerText || el.value || el.getAttribute('title') || '').trim()).includes(kw));
-        if (hit) { hit.scrollIntoView({block:'center'}); hit.click(); return kw; }
-      }
-      const submit = nodes.find(el => (el.tagName || '').toLowerCase() === 'button' || (el.type || '').toLowerCase() === 'submit');
-      if (submit) { submit.scrollIntoView({block:'center'}); submit.click(); return '最后一个可见提交按钮'; }
-      return null;
-    })();
-    """
-    clicked = sb.execute_script(script)
-    if clicked:
-        print(f"    ✅ 最终兜底已点击: {clicked}")
-        return clicked
-    raise Exception("最终兜底仍未找到可点击的确认/支付按钮")
+    """最后兜底：只点击明确的确认/支付文案，禁止点普通 submit。"""
+    return click_by_text(sb, ['确认支付', '确认付款', '余额支付', '立即支付', '支付', '确认续费', '生成订单', '确认', '确定'])
 
 
 def dump_clickable_texts(sb, limit=30):
     """打印当前页面可点击按钮文本，便于定位网站改版后的按钮。"""
     try:
-        items = sb.execute_script("""
-        return (() => {
-          return Array.from(document.querySelectorAll('button,a,input[type=button],input[type=submit],.layui-layer-btn0,.layui-layer-btn a,.layui-layer-btn1,#payamount,.payamount,button.pay-now,.xfSubmit'))
+        items = sb.execute_script(f"""
+        (function() {{
+          return Array.from(document.querySelectorAll('button,a,input[type=button],input[type=submit],.layui-layer-btn0,.layui-layer-btn a,.layui-layer-btn1,#payamount,.payamount,button.pay-now,.xfSubmit,#readBtn'))
             .map(el => (el.innerText || el.value || el.getAttribute('title') || el.id || el.className || '').trim())
-            .filter(Boolean).slice(0, arguments[0]);
-        })();
-        """, limit)
+            .filter(Boolean).slice(0, {int(limit)});
+        }})();
+        """)
         print(f"    🧭 当前可点击按钮/链接文本: {items}")
     except Exception as e:
         print(f"    ⚠️ 可点击文本提取失败: {e}")
@@ -472,68 +451,29 @@ def process_single_account(username, password):
                     sb.click(CONFIG['server_checkbox_selector'])
                     print("    ▶ 已勾选目标云服务器。")
                     
-                    sb.js_click(CONFIG['list_renew_btn_selector'])
-                    time.sleep(4) 
+                    print("    ▶ 正在点击列表页【续费】按钮...")
+                    try:
+                        click_by_text(sb, ["续费"], selectors=['#readBtn', 'button', 'a', 'input[type=button]'], timeout_after=4)
+                    except Exception:
+                        sb.js_click(CONFIG['list_renew_btn_selector'])
+                        time.sleep(4)
                     
                     print("    ▶ 正在生成续费订单...")
                     take_screenshot(sb, "9_点击续费后等待确认按钮", username)
                     dump_clickable_texts(sb)
-                    try:
-                        click_first_available(sb, [
-                            CONFIG['confirm_renew_btn_selector'],
-                            '.layui-layer-btn0',
-                            '.layui-layer-btn a',
-                            'button[type="submit"]',
-                            '//*[contains(normalize-space(.), "确认续费")]',
-                            '//*[contains(normalize-space(.), "生成订单")]',
-                            '//*[contains(normalize-space(.), "确认")]',
-                            '//*[contains(normalize-space(.), "提交")]',
-                        ], timeout=5)
-                    except Exception:
-                        click_by_text(sb, ["确认续费", "生成订单", "确认", "提交", "立即续费"])
-                    time.sleep(5)
+                    click_by_text(sb, ["确认续费", "生成订单", "立即续费", "确认"], selectors=['.layui-layer-btn0', '.layui-layer-btn a', '.layui-layer-btn1', '.xfSubmit', 'button', 'a', 'input[type=button]'], timeout_after=5)
                     take_screenshot(sb, "10_确认续费后支付页面", username)
                     dump_clickable_texts(sb)
                     
                     print("    ▶ 已调起支付面板，等待确认...")
-                    try:
-                        click_first_available(sb, [
-                            CONFIG['order_pay_btn_selector'],
-                            '#payamount',
-                            '.payamount',
-                            'button[type="submit"]',
-                            '//*[contains(normalize-space(.), "余额支付")]',
-                            '//*[contains(normalize-space(.), "立即支付")]',
-                            '//*[contains(normalize-space(.), "支付")]',
-                        ], timeout=8)
-                    except Exception:
-                        click_by_text(sb, ["余额支付", "立即支付", "支付", "确认支付"])
-                    time.sleep(2)
+                    click_by_text(sb, ["余额支付", "立即支付", "确认支付", "支付"], selectors=['#payamount', '.payamount', 'button.pay-now', '.layui-layer-btn0', '.layui-layer-btn a', 'button', 'a', 'input[type=button]'], timeout_after=3)
                     take_screenshot(sb, "11_支付确认弹窗", username)
                     dump_clickable_texts(sb)
                     
                     try:
-                        click_first_available(sb, [
-                            CONFIG['modal_pay_btn_selector'],
-                            '.layui-layer-btn0',
-                            '.layui-layer-btn a',
-                            '.layui-layer-btn1',
-                            'button.pay-now',
-                            'button[type="submit"]',
-                            'input[type="submit"]',
-                            '//*[contains(normalize-space(.), "确认支付")]',
-                            '//*[contains(normalize-space(.), "确认付款")]',
-                            '//*[contains(normalize-space(.), "余额支付")]',
-                            '//*[contains(normalize-space(.), "立即支付")]',
-                            '//*[contains(normalize-space(.), "确定")]',
-                            '//*[contains(normalize-space(.), "确认")]',
-                            '//*[contains(normalize-space(.), "支付")]',
-                        ], timeout=8)
+                        click_by_text(sb, ["确认支付", "确认付款", "余额支付", "立即支付", "确定", "确认", "支付"], selectors=['button.pay-now', '.layui-layer-btn0', '.layui-layer-btn a', '.layui-layer-btn1', '#payamount', '.payamount', 'button', 'a', 'input[type=button]'], timeout_after=5)
                     except Exception:
-                        try:
-                            click_by_text(sb, ["确认支付", "确认付款", "余额支付", "立即支付", "支付", "确认", "确定", "提交"])
-                        except Exception:
-                            click_last_submit_or_confirm(sb)
+                        click_last_submit_or_confirm(sb)
                     print("    ▶ 💸 已确认支付，正在等待系统处理并跳转...")
                     
                     time.sleep(8) 
